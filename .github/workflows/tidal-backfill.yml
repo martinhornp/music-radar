@@ -1,0 +1,79 @@
+name: TIDAL backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      from:
+        description: "Release date cutoff (YYYY-MM-DD, inclusive)"
+        required: true
+        type: string
+      check:
+        description: "new = never checked; errors / ambiguous / missing = recheck every release with that status"
+        required: false
+        type: choice
+        options: [new, errors, ambiguous, missing]
+        default: new
+
+# Share the worker slot to respect MusicBrainz limits across both workflows.
+concurrency:
+  group: daily-import
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TIDAL_ONLY: 'true'
+  TIDAL_FROM: ${{ inputs.from }}
+  TIDAL_CHECK: ${{ inputs.check || 'new' }}
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      retry: ${{ steps.run.outputs.retry }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Enrich stored releases with TIDAL links
+        id: run
+        env:
+          IMPORT_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+        run: bash scripts/import-job.sh
+
+  backfill-new-runner-2:
+    needs: backfill
+    if: needs.backfill.outputs.retry == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      retry: ${{ steps.run.outputs.retry }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Enrich stored releases (attempt 2, new runner)
+        id: run
+        env:
+          IMPORT_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+        run: bash scripts/import-job.sh
+
+  backfill-new-runner-3:
+    needs: backfill-new-runner-2
+    if: needs.backfill-new-runner-2.outputs.retry == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - name: Enrich stored releases (attempt 3, last)
+        env:
+          IMPORT_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+          LAST_ATTEMPT: 'true'
+        run: bash scripts/import-job.sh

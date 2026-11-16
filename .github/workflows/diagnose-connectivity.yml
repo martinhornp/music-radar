@@ -1,0 +1,167 @@
+name: Diagnose connectivity (temporary)
+
+# Temporary, read-only diagnostics: can a GitHub-hosted runner reach the
+# website over IPv4 / IPv6? Uses no secrets and changes nothing.
+# Delete this workflow once the smoke test issue is understood.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE: musik.hornpedersen.dk
+    steps:
+      - name: Runner network
+        continue-on-error: true
+        run: |
+          echo "Public IPv4: $(curl -4 -s -m 5 https://api.ipify.org || echo none)"
+          echo "Public IPv6: $(curl -6 -s -m 5 https://api6.ipify.org || echo none)"
+          echo "--- IPv6 addresses/routes:"
+          ip -6 addr show scope global || true
+          ip -6 route show default || true
+
+      - name: DNS
+        continue-on-error: true
+        run: |
+          echo "A:    $(dig +short A "$SITE" | tr '\n' ' ')"
+          echo "AAAA: $(dig +short AAAA "$SITE" | tr '\n' ' ')"
+
+      - name: TCP connect (5 s timeout)
+        continue-on-error: true
+        env:
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+        run: |
+          v4=$(dig +short A "$SITE" | tail -1)
+          v6=$(dig +short AAAA "$SITE" | tail -1)
+          check() { # host port
+            if timeout 6 nc -z -w 5 "$1" "$2" 2>/dev/null; then r=OPEN; else r="FAILED (exit $?)"; fi
+            echo "$1 port $2 -> $r"
+          }
+          check "$v4" 80
+          check "$v4" 443
+          check "$v6" 443
+          check "$SFTP_HOST" 22
+
+      - name: HTTPS over IPv4
+        continue-on-error: true
+        run: curl -4 -sS -o /dev/null --connect-timeout 5 -m 10 -w 'ip=%{remote_ip} code=%{http_code} connect=%{time_connect}s total=%{time_total}s\n' "https://$SITE/"
+
+      - name: HTTPS over IPv6
+        continue-on-error: true
+        run: curl -6 -sS -o /dev/null --connect-timeout 5 -m 10 -w 'ip=%{remote_ip} code=%{http_code} connect=%{time_connect}s total=%{time_total}s\n' "https://$SITE/"
+
+      - name: HTTPS default (as the smoke test does)
+        continue-on-error: true
+        run: curl -sS -o /dev/null --connect-timeout 5 -m 10 -w 'ip=%{remote_ip} code=%{http_code} connect=%{time_connect}s total=%{time_total}s\n' "https://$SITE/api/health"
+
+      - name: HTTP (port 80) over IPv4
+        continue-on-error: true
+        run: curl -4 -sS -o /dev/null --connect-timeout 5 -m 10 -w 'ip=%{remote_ip} code=%{http_code} connect=%{time_connect}s\n' "http://$SITE/"
+
+      - name: Comparison - one.com's own website
+        continue-on-error: true
+        run: curl -4 -sS -o /dev/null --connect-timeout 5 -m 10 -w 'ip=%{remote_ip} code=%{http_code} connect=%{time_connect}s\n' https://www.one.com/
+
+  # Repeats the deployment's SFTP traffic READ-ONLY (login, the same backup
+  # downloads, mirror --dry-run with 4 parallel connections) and then tests
+  # HTTP from the same runner, to see if SFTP activity gets the runner's IP
+  # blocked from the website. Nothing is uploaded or changed on the server.
+  sftp-then-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      SITE: https://musik.hornpedersen.dk
+      SFTP_HOST: ${{ secrets.SFTP_HOST }}
+      SFTP_PORT: ${{ secrets.SFTP_PORT || '22' }}
+      SFTP_USERNAME: ${{ secrets.SFTP_USER }}
+      SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+      SFTP_REMOTE_PATH: ${{ secrets.SFTP_REMOTE_PATH }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build deploy package (local only, for the dry run)
+        run: |
+          npm ci --prefix frontend
+          npm run build --prefix frontend
+          node scripts/build-deploy.mjs
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: Configure SFTP host key
+        env:
+          SFTP_KNOWN_HOSTS: ${{ secrets.SFTP_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SFTP_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Write HTTP probe helper
+        run: |
+          cat > /tmp/probe.sh <<'EOF'
+          #!/usr/bin/env bash
+          # One line per probe: label, TCP 443, HTTPS / and /api/health (IPv4, 5 s timeouts)
+          label="$1"
+          ip=$(dig +short A musik.hornpedersen.dk | tail -1)
+          if timeout 6 nc -z -w 5 "$ip" 443 2>/dev/null; then tcp=OPEN; else tcp=FAILED; fi
+          home=$(curl -4 -s -o /dev/null --connect-timeout 5 -m 10 -w '%{http_code} %{time_total}s' "$SITE/?t=$(date +%s)" || true)
+          api=$(curl -4 -s -o /dev/null --connect-timeout 5 -m 10 -w '%{http_code} %{time_total}s' "$SITE/api/health?t=$(date +%s)" || true)
+          printf '%s  %-26s tcp443=%-6s  /=%-16s  /api/health=%s\n' "$(date -u +%H:%M:%S)" "$label" "$tcp" "$home" "$api"
+          EOF
+          chmod +x /tmp/probe.sh
+          echo "Runner public IPv4: $(curl -4 -s -m 5 https://api.ipify.org || echo unknown)"
+
+      - name: HTTP before SFTP (baseline)
+        run: /tmp/probe.sh "before SFTP"
+
+      - name: SFTP activity like a deployment (read-only)
+        continue-on-error: true
+        run: |
+          start=$(date +%s)
+          # 1) Same backup downloads as sftp-deploy.sh (into /tmp, never uploaded)
+          script="set cmd:fail-exit no"
+          while IFS= read -r -d '' f; do
+            rel="${f#deploy/}"
+            mkdir -p "/tmp/bk/$(dirname "$rel")"
+            script+=$'\n'"get -O '/tmp/bk/$(dirname "$rel")' '$rel'"
+          done < <(find deploy -type f ! -path 'deploy/assets/*' -print0)
+          export LFTP_PASSWORD="$SFTP_PASSWORD"
+          lftp -f /dev/stdin <<EOF
+          set net:timeout 30
+          set sftp:auto-confirm no
+          set sftp:connect-program "ssh -a -x -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+          open --env-password -u "$SFTP_USERNAME" -p "$SFTP_PORT" "sftp://$SFTP_HOST"
+          cd "$SFTP_REMOTE_PATH"
+          $script
+          bye
+          EOF
+          echo "Downloaded $(find /tmp/bk -type f | wc -l) file(s) (backup step)"
+          # 2) Mirror comparison with 4 parallel connections - dry run, uploads nothing
+          bash scripts/sftp-deploy.sh deploy dry-run | grep -cE "Transferring|get -O" | xargs echo "Dry-run transfer lines:"
+          echo "SFTP activity took $(( $(date +%s) - start ))s"
+
+      - name: HTTP right after SFTP
+        run: /tmp/probe.sh "right after SFTP"
+
+      - name: HTTP after 30 s
+        run: sleep 30 && /tmp/probe.sh "after 30 s"
+
+      - name: HTTP after 90 s
+        run: sleep 60 && /tmp/probe.sh "after 90 s"
+
+      - name: Full smoke test (fail-fast version)
+        continue-on-error: true
+        run: SMOKE_ATTEMPTS=2 bash scripts/smoke-test.sh "$SITE" deploy/index.html

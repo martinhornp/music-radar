@@ -1,0 +1,25 @@
+# Route every request under /api to the front controller.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /api/
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteRule ^ index.php [QSA,L]
+</IfModule>
+
+# Compress JSON responses (the recommendations feed is ~220 KB, ~35 KB gzipped).
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE application/json
+</IfModule>
+
+# Don't advertise the PHP version (also removed in index.php).
+<IfModule mod_headers.c>
+  Header always unset X-Powered-By
+</IfModule>
+
+# Only index.php should be reachable directly.
+<FilesMatch "\.php$">
+  Require all denied
+</FilesMatch>
+<Files "index.php">
+  Require all granted
+</Files>

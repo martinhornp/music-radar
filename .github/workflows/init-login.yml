@@ -1,0 +1,34 @@
+# One-time creation of the login user "martin" on the server (no SSH on
+# one.com). Run it by hand once, after the deploy:
+#   1. add the repository secret INITIAL_PASSWORD (the start password)
+#   2. Actions -> "Initialize login" -> Run workflow
+#   3. delete the secret again (it is not needed afterwards)
+# The server creates the user only while none exists; running it again
+# changes nothing. The password is sent in the request body to the
+# protected internal endpoint and is never printed (GitHub masks secrets).
+name: Initialize login
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  init:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create the user on the server
+        env:
+          IMPORT_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+          INITIAL_PASSWORD: ${{ secrets.INITIAL_PASSWORD }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+        run: |
+          test -n "$IMPORT_TOKEN" || { echo "::error::Secret IMPORT_TOKEN is missing"; exit 1; }
+          test -n "$INITIAL_PASSWORD" || { echo "::error::Secret INITIAL_PASSWORD is missing"; exit 1; }
+          # The body is built from the environment (never on the command line).
+          php -r 'echo json_encode(["password" => getenv("INITIAL_PASSWORD")]);' \
+            | curl -sS --fail-with-body -X POST "$SITE_URL/api/internal/init-login" \
+                -H "X-Import-Token: $IMPORT_TOKEN" -H 'Content-Type: application/json' --data-binary @-
+          echo

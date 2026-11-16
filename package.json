@@ -1,0 +1,16 @@
+{
+  "name": "music-radar",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "npm install --prefix frontend",
+    "dev": "npm run dev --prefix frontend",
+    "build": "npm run build --prefix frontend",
+    "lint": "npm run lint --prefix frontend",
+    "api:up": "docker compose up -d --build",
+    "api:down": "docker compose down",
+    "api:logs": "docker compose logs -f php",
+    "api:local": "php -S localhost:8080 api/index.php",
+    "package": "npm run build && node scripts/build-deploy.mjs"
+  }
+}

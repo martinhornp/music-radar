@@ -1,0 +1,49 @@
+# Import of your most played albums on Last.fm (all time) for the "Bedøm
+# albums" page. Manual only; a new run (e.g. top 200, or after a MusicBrainz
+# error) only adds the albums that are not in the list yet.
+#
+# Needs the secrets IMPORT_TOKEN and LASTFM_API_KEY.
+name: Import top albums
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'How many of your most played albums (e.g. 100 or 200)'
+        default: '100'
+        required: true
+
+concurrency:
+  group: daily-import       # never at the same time as the import
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  top-albums:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            api
+            scripts
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: curl
+          coverage: none
+
+      - name: Build and upload the album list
+        env:
+          IMPORT_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+          LIMIT: ${{ inputs.limit }}
+        run: |
+          test -n "$IMPORT_TOKEN" || { echo "::error::Secret IMPORT_TOKEN is missing"; exit 1; }
+          test -n "$LASTFM_API_KEY" || { echo "::error::Secret LASTFM_API_KEY is missing"; exit 1; }
+          bash scripts/top-albums-import.sh "$SITE_URL" "$LIMIT"

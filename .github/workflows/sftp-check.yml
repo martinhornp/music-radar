@@ -1,0 +1,46 @@
+name: Check SFTP connection
+
+# Read-only: connects, changes into SFTP_REMOTE_PATH and lists its contents.
+# Uploads nothing. Run this manually to confirm the path before enabling
+# deployment (DEPLOY_ENABLED=true).
+
+on:
+  workflow_dispatch:
+    inputs:
+      remote_path:
+        description: "Path to list (leave empty to use the SFTP_REMOTE_PATH secret, '.' for the login directory)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      SFTP_HOST: ${{ secrets.SFTP_HOST }}
+      SFTP_PORT: ${{ secrets.SFTP_PORT || '22' }}
+      SFTP_USERNAME: ${{ secrets.SFTP_USER }}
+      SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+      SFTP_REMOTE_PATH: ${{ inputs.remote_path || secrets.SFTP_REMOTE_PATH }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: Configure SFTP host key
+        env:
+          SFTP_KNOWN_HOSTS: ${{ secrets.SFTP_KNOWN_HOSTS }}
+        run: |
+          test -n "$SFTP_KNOWN_HOSTS" || { echo "::error::Secret SFTP_KNOWN_HOSTS is missing"; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SFTP_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: List remote directory
+        run: bash scripts/sftp-deploy.sh . check

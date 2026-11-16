@@ -1,0 +1,26 @@
+# Copied into dist/ by Vite and uploaded to the web root on one.com.
+# Serves the React app and lets client-side routes fall back to index.html,
+# while leaving /api to the PHP backend.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  RewriteRule ^api(/|$) - [L]
+
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# index.html must always be revalidated so a new deploy shows up right away;
+# hashed files in /assets can be cached forever.
+<IfModule mod_headers.c>
+  <FilesMatch "^index\.html$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <If "%{REQUEST_URI} =~ m#^/assets/#">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </If>
+</IfModule>

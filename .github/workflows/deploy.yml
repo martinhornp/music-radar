@@ -1,0 +1,196 @@
+name: Build & deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: show what would be uploaded, change nothing"
+        type: boolean
+        default: true
+
+# Never run two deployments at the same time; never cancel one halfway.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          tools: none
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Lint frontend
+        run: npm run lint --prefix frontend
+
+      - name: Lint PHP
+        run: find api -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Build deploy package
+        run: |
+          npm run build --prefix frontend
+          node scripts/build-deploy.mjs
+
+      - name: Verify deploy package (frontend + API, no secrets)
+        run: bash scripts/verify-package.sh deploy
+
+      - name: Test API locally (PHP built-in server)
+        run: |
+          php -S 127.0.0.1:8080 api/index.php > /tmp/php.log 2>&1 &
+          sleep 1
+          curl -fsS http://127.0.0.1:8080/api/health | tee /dev/stderr | grep -q '"status":"ok"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/nope)" = 404
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deploy-package
+          path: deploy/
+          include-hidden-files: true # .htaccess files
+          retention-days: 7
+
+  deploy:
+    name: Deploy to one.com
+    needs: build
+    # Only from main. A real upload additionally requires the repository
+    # variable DEPLOY_ENABLED=true (set once the SFTP path is confirmed); a
+    # manual dry run is allowed before that.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      (vars.DEPLOY_ENABLED == 'true' ||
+       (github.event_name == 'workflow_dispatch' && inputs.dry_run))
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+    env:
+      SFTP_HOST: ${{ secrets.SFTP_HOST }}
+      SFTP_PORT: ${{ secrets.SFTP_PORT || '22' }}
+      SFTP_USERNAME: ${{ secrets.SFTP_USER }}
+      SFTP_PASSWORD: ${{ secrets.SFTP_PASSWORD }}
+      SFTP_REMOTE_PATH: ${{ secrets.SFTP_REMOTE_PATH }}
+      MODE: ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && 'dry-run' || 'deploy' }}
+    outputs:
+      retry: ${{ steps.smoke.outputs.retry }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: deploy-package
+          path: deploy
+
+      - name: Install lftp
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq lftp
+
+      - name: Configure SFTP host key
+        env:
+          SFTP_KNOWN_HOSTS: ${{ secrets.SFTP_KNOWN_HOSTS }}
+        run: |
+          test -n "$SFTP_KNOWN_HOSTS" || { echo "::error::Secret SFTP_KNOWN_HOSTS is missing"; exit 1; }
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SFTP_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload via SFTP (${{ env.MODE }})
+        run: bash scripts/sftp-deploy.sh deploy "$MODE" server-backup
+
+      - name: Keep backup of overwritten server files
+        if: always() && env.MODE == 'deploy' && hashFiles('server-backup/**') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-backup-${{ github.run_number }}
+          path: server-backup/
+          include-hidden-files: true
+          retention-days: 30
+
+      # Server settings for the API: database (name, user and password are
+      # secrets, so they are masked in the logs; host defaults to localhost),
+      # import token and Last.fm key.
+      - name: Configure database on the server
+        if: env.MODE == 'deploy'
+        env:
+          DB_HOST: ${{ secrets.DB_HOST || 'localhost' }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          IMPORT_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          IMPORT_BUDGET: ${{ vars.IMPORT_BUDGET }}
+          FEED_SOURCE: ${{ vars.FEED_SOURCE }}
+        run: bash scripts/sftp-config.sh
+
+      # If this runner gets no answer from the host at all, the deployment is
+      # verified from a new runner (verify-new-runner-2/3) - see smoke-job.sh.
+      - name: Smoke test live site
+        id: smoke
+        if: env.MODE == 'deploy'
+        timeout-minutes: 5
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+        run: bash scripts/smoke-job.sh deploy/index.html
+
+  verify-new-runner-2:
+    name: Verify live site (attempt 2, new runner)
+    needs: deploy
+    if: needs.deploy.outputs.retry == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      retry: ${{ steps.smoke.outputs.retry }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@v5
+        with:
+          name: deploy-package
+          path: deploy
+      - name: Smoke test live site
+        id: smoke
+        timeout-minutes: 5
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+        run: bash scripts/smoke-job.sh deploy/index.html
+
+  verify-new-runner-3:
+    name: Verify live site (attempt 3, last)
+    needs: verify-new-runner-2
+    if: needs.verify-new-runner-2.outputs.retry == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@v5
+        with:
+          name: deploy-package
+          path: deploy
+      - name: Smoke test live site
+        timeout-minutes: 5
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+          LAST_ATTEMPT: 'true'
+        run: bash scripts/smoke-job.sh deploy/index.html

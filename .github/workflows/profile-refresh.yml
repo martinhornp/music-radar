@@ -1,0 +1,50 @@
+# Weekly music profile refresh: rebuilds the taste profile from Last.fm +
+# MusicBrainz on the GitHub runner (no time limit there) and stores it on the
+# server, where the next daily import uses it. Artists that dropped out of
+# the Last.fm top lists are kept (the current profile is passed as
+# "previous"). Nothing is committed.
+#
+# Needs the secrets IMPORT_TOKEN and LASTFM_API_KEY.
+name: Weekly profile refresh
+
+on:
+  schedule:
+    - cron: '41 22 * * 0'  # Sunday 23:41 Danish time, before the night's imports
+  workflow_dispatch:
+
+concurrency:
+  group: daily-import       # never at the same time as the import
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  profile:
+    # Scheduled runs only when switched on (repository variable IMPORT_ENABLED=true);
+    # a manual run (workflow_dispatch) always works.
+    if: github.event_name == 'workflow_dispatch' || vars.IMPORT_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: |
+            api
+            scripts
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: curl
+          coverage: none
+
+      - name: Build and upload the profile
+        env:
+          IMPORT_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://musik.hornpedersen.dk' }}
+        run: |
+          test -n "$IMPORT_TOKEN" || { echo "::error::Secret IMPORT_TOKEN is missing"; exit 1; }
+          test -n "$LASTFM_API_KEY" || { echo "::error::Secret LASTFM_API_KEY is missing"; exit 1; }
+          bash scripts/profile-refresh.sh "$SITE_URL"

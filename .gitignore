@@ -1,0 +1,22 @@
+# Dependencies & builds
+node_modules/
+frontend/dist/
+deploy/
+
+# Secrets / local config
+.env
+api/config/config.local.php
+
+# Editors & OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+*.log
+
+# Server backups downloaded during deploy
+server-backup/
+
+# Local experiment output (personal listening data)
+api/var/
