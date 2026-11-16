@@ -14,7 +14,10 @@ use Throwable;
 final class TidalLinkStore
 {
     /** Missing links are checked again this many days after the first check, then no more. */
-    private const MISSING_RETRY_DAYS = [3, 5, 7, 29];
+    private const MISSING_RETRY_DAYS = [3, 29];
+    /** A lookup error (or incomplete answer) is retried after this many days, at most ERROR_MAX_ATTEMPTS checks in all. */
+    public const ERROR_RETRY_DAYS = 2;
+    private const ERROR_MAX_ATTEMPTS = 3;
     /** The daily import does not retry a release whose current score is below this (it still gets its first check). */
     private const MIN_RETRY_SCORE = 0.35;
 
@@ -241,7 +244,7 @@ final class TidalLinkStore
     }
 
     /**
-     * Missing: checked again on day 3, 5, 7 and 29 after the first check, then
+     * Missing: checked again on day 3 and 29 after the first check, then
      * never again - TIDAL links rarely reach MusicBrainz within a day. Days until
      * the next check after the given attempt (1 = the first check).
      */
@@ -418,8 +421,13 @@ final class TidalLinkStore
         $identity = TidalMatch::identityHash($release, $credits[$release['id']] ?? []);
         $attempts = (int) ($old['attempts'] ?? 0) + 1;
         $daily = substr($old['checked_at'] ?? '', 0, 10) === substr($now, 0, 10) ? (int) ($old['daily_checks'] ?? 0) + 1 : 1;
-        $days = $match['status'] === 'error' || ($match['reason'] ?? '') === 'incomplete' ? 1
+        $failed = $match['status'] === 'error' || ($match['reason'] ?? '') === 'incomplete';
+        $days = $failed ? self::ERROR_RETRY_DAYS
             : ($match['status'] === 'missing' ? self::missingRetryDays($attempts) : 7);
+        if ($failed && $attempts >= self::ERROR_MAX_ATTEMPTS) {
+            $days = 3650; // the first check and two retries failed: no more automatic lookups
+            unset($match['retry_after']);
+        }
         $approved = $old['approved_identity'] ?? null;
         $album = $old['album_id'] ?? null;
         $edition = $old['edition_id'] ?? null;

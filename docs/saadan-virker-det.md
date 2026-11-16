@@ -81,8 +81,8 @@ Plader bliver ofte registreret på MusicBrainz nogle dage for sent. Derfor:
   | Resultat | Prøves igen |
   |---|---|
   | Link fundet | Aldrig |
-  | Mangler (intet TIDAL-link på MusicBrainz endnu) | På dag 3, 5, 7 og 29 efter første tjek, derefter ikke mere |
-  | Fejl (fx timeout eller MusicBrainz overbelastet) | Næste dag, eller når MusicBrainz siger, vi må |
+  | Mangler (intet TIDAL-link på MusicBrainz endnu) | På dag 3 og 29 efter første tjek, derefter ikke mere |
+  | Fejl (fx timeout, MusicBrainz overbelastet eller ufuldstændigt svar) | Efter 2 dage (eller senere, hvis MusicBrainz beder os vente) – højst 3 forsøg i alt pr. album |
   | Tvetydig (flere mulige TIDAL-albums) | Efter 7 dage |
 
   Udgivelser, der aldrig er tjekket, kommer altid før genforsøg, og de nyeste

@@ -66,7 +66,7 @@ final class TidalImport
                     $pause = $store->pause($clock(), $e->retryAfterSeconds);
                     // Yield this release beyond the service pause, so a repeatedly
                     // failing item cannot monopolize other due retries either.
-                    $match['retry_after'] = max(86_400, $pause);
+                    $match['retry_after'] = max(TidalLinkStore::ERROR_RETRY_DAYS * 86_400, $pause);
                 }
             }
             if ($match['status'] !== 'error') {

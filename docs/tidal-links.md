@@ -166,7 +166,7 @@ backfill only checks releases never checked before and is done when none are
 left; retries happen in the daily import only. Set it to true once every
 backfill is through.
 
-Missing relations are checked again on day 3, 5, 7 and 29 after the first check, then never again; a release whose active score is below 0.35 gets no retries in the daily import, shown or not (TIDAL links rarely
+Missing relations are checked again on day 3 and 29 after the first check, then never again; a lookup error or incomplete answer is retried after 2 days (or the service's longer Retry-After), at most 3 checks per release; a release whose active score is below 0.35 gets no retries in the daily import, shown or not (TIDAL links rarely
 reach MusicBrainz within a day); unresolved conflicts
 are scheduled weekly while relevant. Approved links are excluded regardless of
 stored retry dates. Technical errors and incomplete responses without approval

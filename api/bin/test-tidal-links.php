@@ -209,23 +209,23 @@ check('a missing relation waits three days for its first retry', $store->due('20
 $retry = $store->due('2026-11-03T12:01:00Z');
 check('a missing relation becomes due again', $retry !== null);
 $store->save($retry, ['status' => 'missing'], '2026-11-03T12:01:00Z');
-check('missing: the next check is on day 5 after the first (day 3, 5, 7, 29)', $store->due('2026-11-05T12:00:00Z') === null && $store->due('2026-11-05T12:02:00Z') !== null);
+check('missing: the next check is on day 29 after the first (day 3, 29)', $store->due('2026-11-29T11:59:00Z') === null && $store->due('2026-11-29T12:02:00Z') !== null);
 $pdo->exec('UPDATE tidal_links SET daily_checks=999');
-check('no daily quota stops due work', $store->due('2026-11-08T12:02:00Z') !== null);
-$lowId = $store->due('2026-11-08T12:02:00Z')['id'];
+check('no daily quota stops due work', $store->due('2026-11-29T12:02:00Z') !== null);
+$lowId = $store->due('2026-11-29T12:02:00Z')['id'];
 $activeRun = $pdo->query("SELECT id FROM recommendation_runs WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
 $oldScore = $pdo->query('SELECT score FROM recommendation_scores WHERE run_id = ' . (int) $activeRun . ' AND release_id = ' . $pdo->quote($lowId))->fetchColumn();
 $pdo->prepare('DELETE FROM recommendation_scores WHERE run_id = ? AND release_id = ?')->execute([$activeRun, $lowId]);
 $pdo->prepare('INSERT INTO recommendation_scores (run_id, release_id, score, parts) VALUES (?, ?, 0.2, ?)')->execute([$activeRun, $lowId, '{}']);
-check('a release scoring below 0.35 is not retried by the daily import', ($store->due('2026-11-08T12:02:00Z')['id'] ?? null) !== $lowId);
+check('a release scoring below 0.35 is not retried by the daily import', ($store->due('2026-11-29T12:02:00Z')['id'] ?? null) !== $lowId);
 $pdo->prepare('UPDATE recommendation_scores SET score = 0.5 WHERE run_id = ? AND release_id = ?')->execute([$activeRun, $lowId]);
-check('...one scoring 0.35 or more still is', ($store->due('2026-11-08T12:02:00Z')['id'] ?? null) === $lowId);
+check('...one scoring 0.35 or more still is', ($store->due('2026-11-29T12:02:00Z')['id'] ?? null) === $lowId);
 $pdo->prepare('DELETE FROM recommendation_scores WHERE run_id = ? AND release_id = ?')->execute([$activeRun, $lowId]);
 if ($oldScore !== false) {
     $pdo->prepare('INSERT INTO recommendation_scores (run_id, release_id, score, parts) VALUES (?, ?, ?, ?)')->execute([$activeRun, $lowId, $oldScore, '{}']);
 }
 $stageNow = '2026-11-02T12:00:00Z';
-$source = $store->due('2026-11-08T12:02:00Z');
+$source = $store->due('2026-11-29T12:02:00Z');
 $cached = $pdo->query('SELECT * FROM tidal_links')->fetch();
 $pdo->prepare('DELETE FROM tidal_queue WHERE release_id=?')->execute([$id]);
 $store->enqueueFrom('2026-10-30', $stageNow);
@@ -233,7 +233,7 @@ $queued = $pdo->query('SELECT * FROM tidal_queue')->fetch();
 check('MariaDB date registration adopts existing negative cache without resetting its retry', $queued['first_checked_at'] === $cached['checked_at']
     && $queued['requested_from'] === null && $queued['priority'] == 4 && $pdo->query('SELECT * FROM tidal_links')->fetch() === $cached);
 check('a backfill never re-checks a release it has checked before (BACKFILL_RETRIES off)', TidalLinkStore::BACKFILL_RETRIES
-    || ($store->due('2026-11-20T12:00:00Z', from: '2026-10-30') === null && $store->due('2026-11-20T12:00:00Z') !== null));
+    || ($store->due('2026-11-29T12:02:00Z', from: '2026-10-30') === null && $store->due('2026-11-29T12:02:00Z') !== null));
 $recheck = static fn (string $status, string $since) => $store->due('2026-11-04T12:00:00Z', from: '2026-10-30', recheck: ['status' => $status, 'since' => $since]);
 check('a requested recheck takes every release of that status, whatever its retry date', ($recheck('missing', '2026-11-04T00:00:00Z')['id'] ?? null) === $id);
 check('...and only that status', $recheck('error', '2026-11-04T00:00:00Z') === null && $recheck('ambiguous', '2026-11-04T00:00:00Z') === null);

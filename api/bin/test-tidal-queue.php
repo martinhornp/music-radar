@@ -163,7 +163,7 @@ foreach (['http_404', 'network', 'invalid_json', 'exception'] as $failure) {
         && $statuses === ['error', 'verified', 'verified']);
     $retry = $db->query('SELECT checked_at, next_check_at FROM tidal_links ORDER BY release_id')->fetch();
     check("$failure preserves an automatic retry without leaking exception text", $store->due($now) === null
-        && strtotime($retry['next_check_at']) - strtotime($retry['checked_at']) === 86_400
+        && strtotime($retry['next_check_at']) - strtotime($retry['checked_at']) === 172_800
         && $store->due(gmdate(DATE_ATOM, strtotime($retry['next_check_at']) - 1)) === null
         && ($store->due($retry['next_check_at'])['id'] ?? null) === $id(1)
         && !str_contains(json_encode($result), 'private diagnostic'));
@@ -184,7 +184,7 @@ foreach ([429, 503, 500] as $http) {
     $resumed = (new TidalImport($db, $mb))->step('2026-11-01T12:01:16+01:00', 18);
     check("HTTP $http recovery processes untouched releases while the failed release waits", $resumed['checked'] === 2
         && !$resumed['pending'] && $db->query("SELECT COUNT(*) FROM tidal_links WHERE status='verified'")->fetchColumn() == 2);
-    $retried = (new TidalImport($db, $mb))->step('2026-11-02T12:00:10+01:00', 18);
+    $retried = (new TidalImport($db, $mb))->step('2026-11-03T12:00:10+01:00', 18);
     check("HTTP $http failed release is automatically retried later", $retried['checked'] === 1
         && $db->query("SELECT COUNT(*) FROM tidal_links WHERE status='verified'")->fetchColumn() == 3);
 }
@@ -225,7 +225,7 @@ $mb = new MusicBrainzClient(maxAttempts: 1, transport: static function ($url) us
     return str_contains($url, $id(1)) ? [0, null, 'timeout'] : $answer($url);
 });
 $result = (new TidalImport($db, $mb))->step($now, 18);
-$result = (new TidalImport($db, $mb))->step('2026-11-02T12:00:01+01:00', 18);
+$result = (new TidalImport($db, $mb))->step('2026-11-03T12:00:01+01:00', 18);
 check('a repeatedly failing release never rechecks or blocks successful peers', $result['checked'] === 1
     && $db->query('SELECT attempts FROM tidal_links ORDER BY release_id')->fetchAll(PDO::FETCH_COLUMN) === [2, 1, 1, 1]);
 $row = $db->query('SELECT * FROM releases ORDER BY id')->fetch();
@@ -262,7 +262,7 @@ $remaining = (new TidalImport($db, $poison))->step('2026-11-01T12:00:32+01:00', 
 check('a repeatedly failing service lookup yields to other due retries after backoff', $firstFailure['checked'] === 1
     && $firstFailure['pending'] && $remaining['checked'] === 2 && !$remaining['pending']
     && $requests === [$id(1), $id(2), $id(3)]);
-$secondFailure = (new TidalImport($db, $poison))->step('2026-11-02T12:00:10+01:00', 18);
+$secondFailure = (new TidalImport($db, $poison))->step('2026-11-03T12:00:10+01:00', 18);
 check('a repeated service failure stays scheduled without undoing other results', $secondFailure['checked'] === 1
     && !$secondFailure['pending'] && $db->query("SELECT COUNT(*) FROM tidal_links WHERE status='verified'")->fetchColumn() == 2);
 
