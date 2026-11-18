@@ -18,8 +18,6 @@ final class TidalLinkStore
     /** A lookup error (or incomplete answer) is retried after this many days, at most ERROR_MAX_ATTEMPTS checks in all. */
     public const ERROR_RETRY_DAYS = 2;
     private const ERROR_MAX_ATTEMPTS = 3;
-    /** The daily import does not retry a release whose current score is below this (it still gets its first check). */
-    private const MIN_RETRY_SCORE = 0.35;
 
     /**
      * Whether a date backfill also retries releases it has checked before
@@ -232,6 +230,16 @@ final class TidalLinkStore
     }
 
     /** An "ambiguous" decided by earlier matching rules is checked again under the current ones. */
+    /**
+     * The daily import retries only releases scoring at least the Recommended
+     * threshold (recommender.php recommended.min_fit); others still get their first check.
+     */
+    private static function minRetryScore(): float
+    {
+        static $min = null;
+        return $min ??= (float) (require __DIR__ . '/../../config/recommender.php')['recommended']['min_fit'];
+    }
+
     /** @return array<string, float> the active recommendations' score per release ([] before the first import) */
     private function activeScores(): array
     {
@@ -395,7 +403,7 @@ final class TidalLinkStore
             if (!$recent && $from === null) {
                 continue; // The daily import never looks at releases over 30 days old (backfilled or not); the backfill workflow does.
             }
-            if (!$first && $from === null && isset($scores[$row['id']]) && $scores[$row['id']] < self::MIN_RETRY_SCORE) {
+            if (!$first && $from === null && isset($scores[$row['id']]) && $scores[$row['id']] < self::minRetryScore()) {
                 continue; // A low score: no retries in the daily import, shown or not.
             }
             if ($first || $changed || $row['next_check_at'] === null || strtotime($row['next_check_at']) <= strtotime($now)) {

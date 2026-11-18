@@ -88,7 +88,7 @@ Plader bliver ofte registreret på MusicBrainz nogle dage for sent. Derfor:
   Udgivelser, der aldrig er tjekket, kommer altid før genforsøg, og de nyeste
   først. Den daglige import tjekker aldrig plader, der er over 30 dage gamle –
   heller ikke dem fra "TIDAL backfill". Ældre plader tjekkes kun, når du selv
-  starter workflowet "TIDAL backfill". Plader med en score under 0,35 får kun
+  starter workflowet "TIDAL backfill". Plader med en score under Recommended-grænsen (0,495) får kun
   deres første tjek og prøves ikke igen – heller ikke hvis de vises på siden.
 
 ### Bedøm albums (dine mest spillede albums)
