@@ -285,7 +285,7 @@ final class InternalController
         try {
             $store = new TidalLinkStore($pdo);
             $store->install();
-            return $store->stageSummary('1900-01-01', date(DATE_ATOM));
+            return $store->stageSummary('1900-01-01', date(DATE_ATOM)) + ['retries' => $store->retryOutlook(date(DATE_ATOM))];
         } catch (Throwable $e) {
             error_log('tidal overview: ' . $e::class);
             return null;

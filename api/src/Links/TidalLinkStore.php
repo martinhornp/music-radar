@@ -276,6 +276,42 @@ final class TidalLinkStore
             && !empty($row['edition_id']) && TidalMatch::albumId('https://tidal.com/album/' . $row['album_id']) !== null;
     }
 
+    /**
+     * Retries the daily import will make, by its own rules (checked before, not
+     * approved, at most 30 days old, a score at the Recommended threshold):
+     * due now, waiting (and within 7 days), and how many of the waiting ones
+     * are missing links or errors. A retry dated after the release's 30 days
+     * will not happen, so it is not counted as waiting.
+     *
+     * @return array{due_now: int, waiting: int, within_7_days: int, waiting_missing: int, waiting_error: int, waiting_ambiguous: int}
+     */
+    public function retryOutlook(string $now): array
+    {
+        $out = ['due_now' => 0, 'waiting' => 0, 'within_7_days' => 0, 'waiting_missing' => 0, 'waiting_error' => 0, 'waiting_ambiguous' => 0];
+        $today = substr($now, 0, 10);
+        $scores = $this->activeScores();
+        $rows = $this->db->query("SELECT r.id, r.type, r.first_release_date, q.first_checked_at, l.status, l.next_check_at, l.approved_identity
+            FROM tidal_queue q JOIN releases r ON r.id=q.release_id JOIN tidal_links l ON l.release_id=r.id
+            WHERE l.status IN ('missing', 'error', 'ambiguous')")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $row) {
+            if ($row['approved_identity'] !== null || $row['first_checked_at'] === null || !in_array($row['type'], ['Album', 'EP'], true)
+                || strlen($row['first_release_date']) !== 10 || $row['first_release_date'] > $today
+                || $row['first_release_date'] < date('Y-m-d', strtotime("$today -30 days"))
+                || ($scores !== [] && ($scores[$row['id']] ?? -1.0) < self::minRetryScore())) {
+                continue;
+            }
+            $next = $row['next_check_at'] === null ? 0 : strtotime($row['next_check_at']);
+            if ($next <= strtotime($now)) {
+                $out['due_now']++;
+            } elseif (gmdate('Y-m-d', $next) <= date('Y-m-d', strtotime($row['first_release_date'] . ' +30 days'))) {
+                $out['waiting']++;
+                $out['within_7_days'] += $next <= strtotime($now) + 7 * 86_400 ? 1 : 0;
+                $out['waiting_' . $row['status']]++;
+            }
+        }
+        return $out;
+    }
+
     public function stageSummary(string $from, string $now): array
     {
         $rows = $this->stageRows($from, $now);

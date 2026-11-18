@@ -304,9 +304,13 @@ if (is_array($s)) {
     }
     if ($t = $s['tidal'] ?? null) {
         // The whole database, not this run: is a backfill or a recheck worth it?
-        $summary[] = sprintf('- TIDAL overall: %d releases - %d with a link, %d missing, %d ambiguous, %d errors, %d never checked; %d due for a retry now',
-            $t['total'], $t['approved'], $t['missing'], $t['ambiguous'], $t['error'], $t['unchecked'],
-            max(0, $t['missing'] + $t['ambiguous'] + $t['error'] - $t['waiting_retry']));
+        $summary[] = sprintf('- TIDAL overall: %d releases - %d with a link, %d missing, %d ambiguous, %d errors, %d never checked',
+            $t['total'], $t['approved'], $t['missing'], $t['ambiguous'], $t['error'], $t['unchecked']);
+        // Retries by the daily import's own rules (30 days, score, schedule).
+        if ($r = $t['retries'] ?? null) {
+            $summary[] = sprintf('- TIDAL retries ahead: %d due now, %d waiting (%d within 7 days) - %d missing, %d errors, %d ambiguous',
+                $r['due_now'], $r['waiting'], $r['within_7_days'], $r['waiting_missing'], $r['waiting_error'], $r['waiting_ambiguous']);
+        }
     }
 } elseif (!$tidalOnly) {
     $summary[] = "- Status not available (HTTP $status)";

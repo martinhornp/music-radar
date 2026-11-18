@@ -206,6 +206,20 @@ $pdo->exec('UPDATE tidal_queue SET first_checked_at=NULL');
 $retry = $store->due($now);
 $store->save($retry, ['status' => 'missing'], $now);
 check('a missing relation waits three days for its first retry', $store->due('2026-11-03T11:59:00Z') === null);
+$outlookRun = $pdo->query("SELECT id FROM recommendation_runs WHERE status = 'active' ORDER BY id DESC LIMIT 1")->fetchColumn();
+$outlookOld = $pdo->query('SELECT score FROM recommendation_scores WHERE run_id = ' . (int) $outlookRun . ' AND release_id = ' . $pdo->quote($retry['id']))->fetchColumn();
+$pdo->prepare('DELETE FROM recommendation_scores WHERE run_id = ? AND release_id = ?')->execute([$outlookRun, $retry['id']]);
+$pdo->prepare('INSERT INTO recommendation_scores (run_id, release_id, score, parts) VALUES (?, ?, 0.6, ?)')->execute([$outlookRun, $retry['id'], '{}']);
+$outlook = $store->retryOutlook('2026-11-01T12:00:00Z');
+check('the retry outlook counts a missing link waiting for its day-3 check', $outlook['due_now'] === 0 && $outlook['waiting'] >= 1
+    && $outlook['within_7_days'] >= 1 && $outlook['waiting_missing'] >= 1, json_encode($outlook));
+check('...and it is due on day 3', $store->retryOutlook('2026-11-03T12:01:00Z')['due_now'] >= 1);
+$pdo->prepare('UPDATE recommendation_scores SET score = 0.1 WHERE run_id = ? AND release_id = ?')->execute([$outlookRun, $retry['id']]);
+check('...a low score is not counted (the daily import will not retry it)', $store->retryOutlook('2026-11-01T12:00:00Z')['waiting'] === $outlook['waiting'] - 1);
+$pdo->prepare('DELETE FROM recommendation_scores WHERE run_id = ? AND release_id = ?')->execute([$outlookRun, $retry['id']]);
+if ($outlookOld !== false) {
+    $pdo->prepare('INSERT INTO recommendation_scores (run_id, release_id, score, parts) VALUES (?, ?, ?, ?)')->execute([$outlookRun, $retry['id'], $outlookOld, '{}']);
+}
 $retry = $store->due('2026-11-03T12:01:00Z');
 check('a missing relation becomes due again', $retry !== null);
 $store->save($retry, ['status' => 'missing'], '2026-11-03T12:01:00Z');
