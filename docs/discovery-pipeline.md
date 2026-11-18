@@ -263,6 +263,9 @@ earlier wildcards kept.
   other artists' releases (counted once). Danish artist, known artist and the
   listening help have weight 0. Families and blends give no points (only for
   wildcards).
+- **No genre information:** music = 0.4 x Last.fm, then the same blend; data
+  confidence = 1 - (1 - 0.5 x Last.fm)(1 - w). Can be recommended on your own
+  ratings/plays, never a wildcard; nothing known at all = not judged (no score).
 - **Data confidence** = 1 - (1 - tag confidence)(1 - 0.5 x Last.fm), tag
   confidence = source quality x information / full.
 - All thresholds and other terms are the earlier ones x 1/0.76 (max-to-max).

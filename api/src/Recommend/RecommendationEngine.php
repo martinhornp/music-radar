@@ -312,7 +312,7 @@ final class RecommendationEngine
             'signals' => [], 'reasons' => [], 'primary_family' => null, 'new_blend' => false, 'novel_family' => null,
             'new_family_share' => 0.0, 'unrelated_blend' => null, 'specific_shared' => [], 'tag_artists' => [], 'lastfm_artists' => []];
         if ($vector === []) {
-            return $base + ['note' => 'no genre information - cannot be judged musically'];
+            return $this->assessWithoutGenres($r, $ev, $base);
         }
 
         // Families of the release (by tag weight) - for bets, "outside" and
@@ -400,8 +400,7 @@ final class RecommendationEngine
         //    ratings of the shared tags move it as they move the genre match.
         // 3. Last.fm Similar Artists - independent of the tags (see SimilarArtists).
         $tagArtists = [];
-        $lastfmArtists = [];
-        $links = $r['similar']['links'] ?? [];
+        [$lastfm, $lastfmArtists] = $this->lastfmSignal($r);
         foreach ($this->taste->artists as $art) {
             [$sim, $contrib] = $this->taste->similarity($vector, $art['vector']);
             if ($contrib !== []) {
@@ -414,19 +413,9 @@ final class RecommendationEngine
                     $tagArtists[$art['name']] = ['weighted' => $overlap * $art['weight'], 'overlap' => round($overlap, 3), 'shared' => array_slice(array_keys($contrib), 0, 3)];
                 }
             }
-            if (isset($links[$art['name']])) {
-                // A link to an artist you play a lot, or rated well, says more: graded
-                // by plays (play_floor .. 1) and up to 1 + rating_boost from good ratings.
-                $strength = ((float) $model['lastfm_play_floor'] + (1 - (float) $model['lastfm_play_floor']) * $art['play_weight'])
-                    * (1 + (float) $model['lastfm_rating_boost'] * max(0.0, $this->ratings->artistLean($art['mbid'])));
-                $lastfmArtists[$art['name']] = ['weighted' => $links[$art['name']]['s'] * $art['weight'] * $strength, 'link' => $links[$art['name']]['s']];
-            }
         }
         uasort($tagArtists, static fn ($a, $b) => $b['weighted'] <=> $a['weighted']);
-        uasort($lastfmArtists, static fn ($a, $b) => $b['weighted'] <=> $a['weighted']);
         $overlap = $tagArtists ? reset($tagArtists)['weighted'] : 0.0;
-        $weighted = array_values(array_column($lastfmArtists, 'weighted'));
-        $lastfm = $weighted ? min(1.0, $weighted[0] + 0.15 * array_sum(array_slice($weighted, 1, 2))) : 0.0;
         $genre = max($genreMatch, $overlap);
         // Independent evidence: each source has a ceiling (Last.fm alone at most
         // lastfm_cap), a missing source adds nothing, sources that agree add up.
@@ -507,18 +496,8 @@ final class RecommendationEngine
         // Personal = the mean of your ratings; plays count as plays_opinion (you
         // like it, not enthusiasm) with a weight that shrinks as ratings come
         // in, so ratings take precedence. Both parts are 0..1, so the score is too.
-        $pc = $this->config['personal'];
         $musicPart = max(0.0, $music - $w['outside'] * $outside);
-        $opinion = $this->ratings->artistOpinion($r['artist']['mbid'] ?? null, $r['id'] ?? null);
-        $plays = ($this->config['interest']['enabled'] ?? true) ? (float) $pc['plays_weight'] * (float) ($r['interest']['value'] ?? 0.0) : 0.0;
-        $playsInOpinion = $plays / (1 + $opinion['count']);
-        $evidence = $opinion['count'] + $plays;
-        $personalWeight = $evidence / ($evidence + (float) $pc['prior']);
-        $personal = $opinion['count'] + $playsInOpinion > 0
-            ? ($opinion['count'] * $opinion['mean'] + $playsInOpinion * (float) $pc['plays_opinion']) / ($opinion['count'] + $playsInOpinion)
-            : 0.0;
-        $fit = (1 - $personalWeight) * $musicPart + $personalWeight * $personal;
-        $rating = $personalWeight * $personal;
+        [$fit, $personalWeight, $rating] = $this->blend($r, $musicPart);
         // The same terms one by one (for explaining a score; they add up to $fit).
         $scoreParts = array_map(static fn ($x) => round($x, 4), [
             'genre' => (1 - $personalWeight) * $genre,
@@ -568,6 +547,98 @@ final class RecommendationEngine
         $a['reasons'] = [...$this->reasons($r, $a, $ev, $genreContrib, $novelTags, $music - $genre), ...$rated['evidence']];
         $a['new_artist_since'] = $ev['begin'];
         return $a + ($compilation ? ['note' => 'title suggests a compilation/reissue/live record'] : []);
+    }
+
+    /**
+     * Last.fm Similar Artists: links to your profile artists. A link to an
+     * artist you play a lot, or rated well, says more: graded by plays
+     * (lastfm_play_floor .. 1) and up to 1 + lastfm_rating_boost from good ratings.
+     *
+     * @return array{0: float, 1: array<string, array{weighted: float, link: float}>}  signal 0..1, linked artists strongest first
+     */
+    private function lastfmSignal(array $r): array
+    {
+        $model = $this->config['model'];
+        $links = $r['similar']['links'] ?? [];
+        $artists = [];
+        foreach ($this->taste->artists as $art) {
+            if (isset($links[$art['name']])) {
+                $strength = ((float) $model['lastfm_play_floor'] + (1 - (float) $model['lastfm_play_floor']) * $art['play_weight'])
+                    * (1 + (float) $model['lastfm_rating_boost'] * max(0.0, $this->ratings->artistLean($art['mbid'])));
+                $artists[$art['name']] = ['weighted' => $links[$art['name']]['s'] * $art['weight'] * $strength, 'link' => $links[$art['name']]['s']];
+            }
+        }
+        uasort($artists, static fn ($a, $b) => $b['weighted'] <=> $a['weighted']);
+        $weighted = array_values(array_column($artists, 'weighted'));
+        return [$weighted ? min(1.0, $weighted[0] + 0.15 * array_sum(array_slice($weighted, 1, 2))) : 0.0, $artists];
+    }
+
+    /**
+     * Dynamic blend: score = (1 - w) x music + w x personal. Music is the
+     * general assumption; personal is your own opinion of this artist. w grows
+     * smoothly with what we know: E = ratings + plays (up to plays_weight),
+     * w = E / (E + prior). Personal = the mean of your ratings; plays count as
+     * plays_opinion (you like it, not enthusiasm) with a weight that shrinks as
+     * ratings come in, so ratings take precedence. Both parts are 0..1, so the
+     * score is too.
+     *
+     * @return array{0: float, 1: float, 2: float}  score, w, w x personal
+     */
+    private function blend(array $r, float $music): array
+    {
+        $pc = $this->config['personal'];
+        $opinion = $this->ratings->artistOpinion($r['artist']['mbid'] ?? null, $r['id'] ?? null);
+        $plays = ($this->config['interest']['enabled'] ?? true) ? (float) $pc['plays_weight'] * (float) ($r['interest']['value'] ?? 0.0) : 0.0;
+        $playsInOpinion = $plays / (1 + $opinion['count']);
+        $evidence = $opinion['count'] + $plays;
+        $weight = $evidence / ($evidence + (float) $pc['prior']);
+        $personal = $opinion['count'] + $playsInOpinion > 0
+            ? ($opinion['count'] * $opinion['mean'] + $playsInOpinion * (float) $pc['plays_opinion']) / ($opinion['count'] + $playsInOpinion)
+            : 0.0;
+        return [(1 - $weight) * $music + $weight * $personal, $weight, $weight * $personal];
+    }
+
+    /**
+     * A release without any genre information: judged on what we still know -
+     * Last.fm links to your artists (music, at most lastfm_cap) and your own
+     * ratings and plays of the artist (the dynamic blend). Data confidence comes
+     * from the same two sources. Nothing known at all: not judged (no score).
+     */
+    private function assessWithoutGenres(array $r, array $ev, array $base): array
+    {
+        $model = $this->config['model'];
+        [$lastfm, $lastfmArtists] = $this->lastfmSignal($r);
+        $music = (float) $model['lastfm_cap'] * $lastfm;
+        [$fit, $personalWeight, $rating] = $this->blend($r, $music);
+        if ($lastfm <= 0.0 && $personalWeight <= 0.0) {
+            return $base + ['note' => 'no genre information - cannot be judged musically'];
+        }
+        $confidence = 1 - (1 - (float) $model['lastfm_confidence'] * $lastfm) * (1 - $personalWeight);
+        $rated = $this->ratings->assess([], $r['artist']['mbid'] ?? null, $r['id'] ?? null);
+        $a = [
+            'assessable' => true,
+            'no_genre' => true,
+            'fit' => round($fit, 4),
+            'confidence' => round($confidence, 2),
+            'signals' => ['genre' => 0.0, 'lastfm' => round($lastfm, 3), 'neighbours' => round($lastfmArtists ? max(array_column($lastfmArtists, 'link')) : 0.0, 3),
+                'blend' => 0.0, 'novelty' => 0.0, 'outside' => 0.0, 'danish' => 0.0, 'known' => 0.0, 'rating' => round($rating, 3),
+                'genre_match' => 0.0, 'tag_overlap' => 0.0, 'tag_confidence' => 0.0],
+            'families' => [],
+            'genre_information' => ['specific' => [], 'broad' => [], 'amount' => 0.0],
+            'lastfm_artists' => array_slice($lastfmArtists, 0, 3, true),
+            'lastfm_identity' => $r['similar']['identity'] ?? null,
+            'lastfm_certainty' => $r['similar']['certainty'] ?? null,
+            'artist_match' => ['name' => null, 'similarity' => 0.0],
+            'rating_lean' => [],
+            'related_rating_lean' => [],
+            'tags' => [],
+            'rating_parts' => array_diff_key($rated, ['evidence' => 1]),
+            'score_parts' => array_map(static fn ($x) => round($x, 4), ['genre' => 0.0, 'lastfm' => (1 - $personalWeight) * $music,
+                'danish' => 0.0, 'known' => 0.0, 'outside' => 0.0, 'rating' => $rating]),
+        ] + $base;
+        $a['reasons'] = [...$this->reasons($r, $a, $ev, [], [], (1 - $personalWeight) * $music), ...$rated['evidence']];
+        $a['new_artist_since'] = $ev['begin'];
+        return $a;
     }
 
     /** @return list<array{kind: string, text: string, facts: list<string>}> */
@@ -640,7 +711,9 @@ final class RecommendationEngine
             $out[] = ['kind' => 'listened', 'text' => $listened['text'], 'facts' => []];
         }
         $info = $a['genre_information'];
-        if ($a['signals']['tag_confidence'] < 1.0 && $info['amount'] < $this->taste->fullInformation()) {
+        if (($a['no_genre'] ?? false)) {
+            // Said once, in the release's own caveat (no genre information found).
+        } elseif ($a['signals']['tag_confidence'] < 1.0 && $info['amount'] < $this->taste->fullInformation()) {
             $out[] = ['kind' => 'caveat', 'text' => $info['specific'] === []
                 ? 'Limited music data: only broad genres (' . implode(', ', $info['broad']) . ')'
                 : 'Limited music data: only ' . count($info['specific']) . ' specific genre tag(s)', 'facts' => []];
@@ -701,7 +774,7 @@ final class RecommendationEngine
     private function listenedBet(string $id, array $a, array $r): bool
     {
         $c = $this->config;
-        if (!($c['interest']['listened_wildcards'] ?? false) || $a['interest_level'] !== 'listened' || !$a['assessable'] || $this->ratedLow($id)
+        if (!($c['interest']['listened_wildcards'] ?? false) || $a['interest_level'] !== 'listened' || !$a['assessable'] || ($a['no_genre'] ?? false) || $this->ratedLow($id)
             || $a['confidence'] < $c['interest']['listened_min_confidence'] || $a['signals']['outside'] > $c['wildcards']['max_outside']) {
             return false;
         }
@@ -786,7 +859,7 @@ final class RecommendationEngine
         if ($origin !== 'discovery') {
             array_unshift($reasons, ['kind' => 'known', 'text' => $this->knownReason($r, $origin), 'facts' => []]);
         }
-        if (!$a['assessable']) {
+        if (!$a['assessable'] || ($a['no_genre'] ?? false)) {
             $reasons[] = ['kind' => 'caveat', 'text' => 'Limited data: no genre information found', 'facts' => []];
         }
         if ($type === 'wildcard' && $a['unrelated_blend'] !== null) {

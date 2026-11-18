@@ -403,8 +403,8 @@ final class TidalLinkStore
             if (!$recent && $from === null) {
                 continue; // The daily import never looks at releases over 30 days old (backfilled or not); the backfill workflow does.
             }
-            if (!$first && $from === null && isset($scores[$row['id']]) && $scores[$row['id']] < self::minRetryScore()) {
-                continue; // A low score: no retries in the daily import, shown or not.
+            if (!$first && $from === null && $scores !== [] && ($scores[$row['id']] ?? -1.0) < self::minRetryScore()) {
+                continue; // A low score, or none (nothing to judge it on): no retries in the daily import, shown or not.
             }
             if ($first || $changed || $row['next_check_at'] === null || strtotime($row['next_check_at']) <= strtotime($now)) {
                 $row['tidal_priority'] = $first ? (int) $row['priority'] : 3;

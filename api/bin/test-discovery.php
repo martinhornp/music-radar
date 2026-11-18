@@ -257,6 +257,17 @@ $otherArtist = $fitWith([$rated('o1', $hcTags, 5, 'mbid-other')], $releases['hc'
 $sameArtistGenre = (new RecommendationEngine($taste, $config, ['ratings' => [$rated('s1', $hcTags, 5, 'mbid-hc')]]))->assess($releases['hc'])['score_parts']['genre'];
 check('a rating of the same artist counts once (personal part), not also in its genres',
     abs($sameArtistGenre / (1 - 1 / 4) - $as['hc']['score_parts']['genre']) < 0.001 && $otherArtist > $base, "$sameArtistGenre");
+echo "Releases without genre information\n";
+$bare = $release('bare', [['Album', 'musicbrainz:release-group']], ['metadata_quality' => 'insufficient']);
+check('nothing known (no genres, no Last.fm link, no ratings or plays): not judged, no score', $plainEngine->assess($bare)['assessable'] === false);
+$bareLinked = $plainEngine->assess(['similar' => ['identity' => 'mbid', 'links' => ['Knocked Loose' => ['s' => 1.0, 'out' => 1.0, 'in' => 0.0]]]] + $bare);
+check('...a Last.fm link alone gives a score, but never Recommended (at most 0.4)', $bareLinked['assessable'] === true && $bareLinked['fit'] > 0
+    && $bareLinked['fit'] <= 0.4, json_encode([$bareLinked['fit'], $bareLinked['reasons']]));
+$bareRated = new RecommendationEngine($taste, $config, ['ratings' => array_map(static fn ($i) => $rated("br$i", $hcTags, 5, 'mbid-bare'), range(1, 5))]);
+$bareJudged = $bareRated->assess($bare);
+check('...your ratings of the artist judge it (dynamic blend)', $bareJudged['fit'] > $config['recommended']['min_fit'] && $bareJudged['confidence'] >= $config['recommended']['min_confidence'],
+    json_encode([$bareJudged['fit'], $bareJudged['confidence']]));
+check('...and it can be recommended', in_array('bare', array_column($bareRated->run(['bare' => $bare])['recommended'], 'id'), true));
 check('a rating does not score the rated release itself', $fitWith([$rated('hc', $hcTags, 1, 'mbid-hc')], $releases['hc']) === $base);
 
 echo "Ratings: nuance, not genre points\n";

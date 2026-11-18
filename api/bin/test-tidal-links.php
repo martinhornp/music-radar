@@ -221,6 +221,11 @@ check('a release scoring below the Recommended threshold (0.495) is not retried 
 $pdo->prepare('UPDATE recommendation_scores SET score = 0.5 WHERE run_id = ? AND release_id = ?')->execute([$activeRun, $lowId]);
 check('...one scoring 0.495 or more still is', ($store->due('2026-11-29T12:02:00Z')['id'] ?? null) === $lowId);
 $pdo->prepare('DELETE FROM recommendation_scores WHERE run_id = ? AND release_id = ?')->execute([$activeRun, $lowId]);
+$pdo->prepare('INSERT INTO recommendation_scores (run_id, release_id, score, parts) VALUES (?, ?, 0.9, ?)')->execute([$activeRun, 'ffffffff-0000-0000-0000-000000000099', '{}']);
+check('...one without a score (not judged) is not retried either', ($store->due('2026-11-29T12:02:00Z')['id'] ?? null) !== $lowId);
+$pdo->prepare('DELETE FROM recommendation_scores WHERE run_id = ? AND release_id = ?')->execute([$activeRun, 'ffffffff-0000-0000-0000-000000000099']);
+$pdo->prepare('INSERT INTO recommendation_scores (run_id, release_id, score, parts) VALUES (?, ?, 0.5, ?)')->execute([$activeRun, $lowId, '{}']);
+$pdo->prepare('DELETE FROM recommendation_scores WHERE run_id = ? AND release_id = ?')->execute([$activeRun, $lowId]);
 if ($oldScore !== false) {
     $pdo->prepare('INSERT INTO recommendation_scores (run_id, release_id, score, parts) VALUES (?, ?, ?, ?)')->execute([$activeRun, $lowId, $oldScore, '{}']);
 }

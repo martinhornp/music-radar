@@ -88,8 +88,9 @@ Plader bliver ofte registreret på MusicBrainz nogle dage for sent. Derfor:
   Udgivelser, der aldrig er tjekket, kommer altid før genforsøg, og de nyeste
   først. Den daglige import tjekker aldrig plader, der er over 30 dage gamle –
   heller ikke dem fra "TIDAL backfill". Ældre plader tjekkes kun, når du selv
-  starter workflowet "TIDAL backfill". Plader med en score under Recommended-grænsen (0,495) får kun
-  deres første tjek og prøves ikke igen – heller ikke hvis de vises på siden.
+  starter workflowet "TIDAL backfill". Plader med en score under Recommended-grænsen (0,495) – eller
+  helt uden score – får kun deres første tjek og prøves ikke igen, heller ikke
+  hvis de vises på siden.
 
 ### Bedøm albums (dine mest spillede albums)
 
@@ -160,6 +161,13 @@ fylder de generelle antagelser. Se "Din holdning til kunstneren" nedenfor.
 | 3 karakterer | 50 % |
 | 3 karakterer + mange afspilninger | 60 % |
 | 9 karakterer | 75 % |
+
+**Plader uden genreoplysninger** vurderes ud fra det, vi alligevel ved:
+Last.fm-forbindelser (højst 0,4) og din holdning til kunstneren (karakterer og
+afspilninger). De markeres "Limited data". En plade uden genre fra en kunstner,
+du har givet gode karakterer, kan komme i Recommended, men aldrig blive et
+Wildcard. Ved vi slet intet (ingen genre, ingen forbindelser, ingen karakterer
+eller afspilninger), får den ingen score.
 
 ### Grænserne
 
