@@ -21,7 +21,7 @@ Settings: `api/config/discovery.php` (pipeline) and
 | # | Stage | What | Requests |
 |---|---|---|---|
 | 1 | collect | Genre-neutral: every exact-dated album/EP per day and type, all pages; queries over 500 hits split by artist-name range. Days are only re-collected when due. | ~2–15 per day/type |
-| 2 | known | New releases of your Interested artists, checked directly per artist – also collaborations where they are credited second or later; year/month-only dates verified. Independent of any score. | 1 per artist, every 20 h |
+| 2 | known | New releases of your Interested artists, checked directly per artist – also collaborations where they are credited second or later; year/month-only dates verified. Independent of any score. | 1 per artist: every Friday, otherwise after 48 h |
 | 3 | credits | Releases stored before every credited artist was kept get their full credit (single-artist pool releases from what is stored, the rest from MusicBrainz, 50 per request; resumable). Then each release's watch level from **all** its credited artists. | ~1 per 50 releases, once |
 | 4 | artists | MusicBrainz artist data (tags, country, area, start year, description) for 50 artists per request; refreshed after 30 days. | ~1 per 50 artists |
 | 5 | prescore | Every release scored from MusicBrainz data alone. | none |

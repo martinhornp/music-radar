@@ -36,8 +36,9 @@ En forklaring uden teknik. Tallene er dem, systemet bruger lige nu.
    ny musik på sin egen dato. En remaster med samme antal numre tæller ikke.
    Hver dag søges ad gangen.
 3. **Dine kunstnere tjekkes direkte.** Kunstnere, du følger eller er
-   interesseret i, slås op enkeltvis højst hver 20. time, så deres nye plader
-   ikke bliver overset.
+   interesseret i, slås op enkeltvis, så deres nye plader ikke bliver overset:
+   altid om fredagen (den store udgivelsesdag), ellers når der er gået mindst
+   48 timer siden sidst.
 4. **Oplysninger om kunstnerne** (genrer, land) hentes fra MusicBrainz og
    opdateres hver 30. dag.
 5. **Last.fm-oplysninger** hentes kun, hvor de gør en forskel: dine egne

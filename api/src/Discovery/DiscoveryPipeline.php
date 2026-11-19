@@ -317,6 +317,8 @@ final class DiscoveryPipeline
         $finder = new KnownArtistReleases($this->mb, $this->log);
         $verifier = new DateVerifier($this->mb);
         $dueBefore = time() - $this->cfg['known_artists_every_hours'] * 3600;
+        // Friday: every artist once that day, however recently it was checked.
+        $friday = ($this->cfg['known_artists_on_friday'] ?? false) && date('N', strtotime($to)) === '5';
         $paused = $this->paused('known');
         $count = ['artists' => 0, 'checked_artists' => 0, 'fresh' => 0, 'releases' => 0, 'new' => 0, 'changed' => 0, 'unchanged' => 0, 'errors' => 0, 'paused' => 0, 'remaining' => 0];
         $watched = array_values(array_filter($this->profile['artists'], KnownArtistReleases::watched(...)));
@@ -324,7 +326,7 @@ final class DiscoveryPipeline
         foreach ($watched as $i => $a) {
             $mbid = $a['musicbrainz']['mbid'];
             $last = $this->store->meta("known_checked:$mbid");
-            if ($last !== null && strtotime($last) > $dueBefore) {
+            if ($last !== null && ($friday ? date('Y-m-d', strtotime($last)) >= $to : strtotime($last) > $dueBefore)) {
                 $count['fresh']++;
                 continue;
             }

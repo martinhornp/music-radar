@@ -15,8 +15,10 @@ return [
     // Expanded editions (CandidateFinder::readEditions) are searched from this day on.
     'editions_from' => '2026-11-13',
 
-    // Known (followed/interested) artists are checked directly at most this often.
-    'known_artists_every_hours' => 20,
+    // Known (followed/interested) artists are checked directly at most this often -
+    // and on Fridays (the big release day) once more, whenever they were last checked.
+    'known_artists_every_hours' => 48,
+    'known_artists_on_friday' => true,
 
     // Artist data from MusicBrainz is fetched in batches and refreshed after N days.
     'artist_batch' => 50,
