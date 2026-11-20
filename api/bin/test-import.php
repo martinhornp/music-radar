@@ -35,6 +35,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 $app = require __DIR__ . '/../bootstrap.php';
+\MusicRadar\Links\TidalLinkStore::$firstCheckDelayHours = 0; // the import tests check TIDAL at once
 $dbCfg = ['name' => getenv('TEST_DB_NAME') ?: 'music_radar_test'] + $app->config['db'];
 if (!str_ends_with($dbCfg['name'], '_test')) {
     fwrite(STDERR, "Refusing to run: the test database name must end in _test.\n");

@@ -13,6 +13,7 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 require __DIR__ . '/../bootstrap.php';
+TidalLinkStore::$firstCheckDelayHours = 0; // these tests check at once; the delay has its own test (test-tidal-links)
 $failures = 0;
 function check(string $label, bool $ok): void
 {

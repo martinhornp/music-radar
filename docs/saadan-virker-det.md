@@ -86,6 +86,9 @@ Plader bliver ofte registreret på MusicBrainz nogle dage for sent. Derfor:
   | Fejl (fx timeout, MusicBrainz overbelastet eller ufuldstændigt svar) | Efter 2 dage (eller senere, hvis MusicBrainz beder os vente) – højst 3 forsøg i alt pr. album |
   | Tvetydig (flere mulige TIDAL-albums) | Efter 7 dage |
 
+  En ny plade får sit første tjek tidligst 12 timer efter, den kom i databasen
+  (TIDAL-links kommer sjældent på MusicBrainz med det samme). Workflowet
+  "TIDAL backfill" tjekker med det samme.
   Udgivelser, der aldrig er tjekket, kommer altid før genforsøg, og de nyeste
   først. Den daglige import tjekker aldrig plader, der er over 30 dage gamle –
   heller ikke dem fra "TIDAL backfill". Ældre plader tjekkes kun, når du selv

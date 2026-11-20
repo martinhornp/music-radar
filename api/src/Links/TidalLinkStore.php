@@ -15,6 +15,8 @@ final class TidalLinkStore
 {
     /** Missing links are checked again this many days after the first check, then no more. */
     private const MISSING_RETRY_DAYS = [3, 29];
+    /** The daily import first checks a release this long after it was stored: links rarely reach MusicBrainz at once (tests set 0). */
+    public static int $firstCheckDelayHours = 12;
     /** A lookup error (or incomplete answer) is retried after this many days, at most ERROR_MAX_ATTEMPTS checks in all. */
     public const ERROR_RETRY_DAYS = 2;
     private const ERROR_MAX_ATTEMPTS = 3;
@@ -425,6 +427,10 @@ final class TidalLinkStore
             $changed = ($row['identity_hash'] !== null && $row['identity_hash'] !== $identity)
                 || ($from !== null && $row['tidal_status'] === 'verified') || self::rulesChanged($row);
             $first = $row['first_checked_at'] === null;
+            if ($first && $from === null && $recheck === null && self::$firstCheckDelayHours > 0 && !empty($row['first_seen_at'])
+                && strtotime($row['first_seen_at']) > strtotime($now) - self::$firstCheckDelayHours * 3600) {
+                continue; // Too new: first checked $firstCheckDelayHours after it was stored.
+            }
             if ($recheck !== null) {
                 if ($row['tidal_status'] === $recheck['status'] && $row['tidal_checked_at'] !== null
                     && strtotime($row['tidal_checked_at']) < strtotime($recheck['since'])) {

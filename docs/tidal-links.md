@@ -60,6 +60,9 @@ sources register work in the persistent `tidal_queue`:
 3. Due retries and identity-related rechecks of registered entries. An older
    approved link with a changed identity can also register this concrete need.
 
+The daily import makes a release's first attempt at the earliest 12 hours after it was stored
+(`TidalLinkStore::$firstCheckDelayHours`; links rarely reach MusicBrainz at once); date stages
+(backfill) check at once.
 First-attempt priority is 1 or 2; subsequent attempts are priority 3. Future
 retry dates never block first attempts for new discoveries. Old unseen releases
 are not registered. The daily import never looks at a release over 30 days old -

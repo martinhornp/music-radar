@@ -24,6 +24,7 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 $app = require __DIR__ . '/../bootstrap.php';
+\MusicRadar\Links\TidalLinkStore::$firstCheckDelayHours = 0; // these tests check at once; the delay has its own test
 $cfg = ['name' => getenv('TEST_DB_NAME') ?: 'music_radar_test'] + $app->config['db'];
 if (!str_ends_with($cfg['name'], '_test')) {
     fwrite(STDERR, "Refusing to run: the test database name must end in _test.\n");
@@ -203,6 +204,11 @@ $pdo->prepare('UPDATE tidal_links SET approval_hash=? WHERE release_id=?')->exec
 check('an ambiguous result from earlier matching rules is due again at once', ($store->due('2026-11-21T12:00:00Z')['id'] ?? null) === $id);
 $pdo->exec('DELETE FROM tidal_links');
 $pdo->exec('UPDATE tidal_queue SET first_checked_at=NULL');
+TidalLinkStore::$firstCheckDelayHours = 12;
+check('a new release is first checked 12 hours after it was stored', $store->due($now) === null
+    && ($store->due(gmdate(DATE_ATOM, strtotime($now) + 12 * 3600 + 60))['id'] ?? null) === $id);
+check('...the backfill workflow checks it at once', ($store->due($now, from: '2026-10-30')['id'] ?? null) === $id);
+TidalLinkStore::$firstCheckDelayHours = 0;
 $retry = $store->due($now);
 $store->save($retry, ['status' => 'missing'], $now);
 check('a missing relation waits three days for its first retry', $store->due('2026-11-03T11:59:00Z') === null);
